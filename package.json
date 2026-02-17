@@ -1,0 +1,12 @@
+{
+  "name": "rateio-peptideos",
+  "version": "1.0.0",
+  "description": "Rateio de peptídeos do grupo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Rateio Peptídeos 💊</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+  input:focus { outline: none; }
+  button:active { opacity: 0.8; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #3730a3; border-radius: 99px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const PEPTIDES = [
+  { id: "klow80", name: "KLOW 80MG", price: 116.60, max: 10 },
+  { id: "selank10", name: "SELANK 10MG", price: 34.48, max: 10 },
+  { id: "ghkcu50", name: "GHK-CU 50MG", price: 15.90, max: 10 },
+  { id: "ghkcu100", name: "GHK-Cu 100MG", price: 26.50, max: 20 },
+  { id: "thymosin10", name: "THYMOSIN ALPHA-1 10MG", price: 76.80, max: 10 },
+  { id: "retatrutide60", name: "RETATRUTIDE 60MG", price: 195.00, max: 10 },
+  { id: "retatrutide30", name: "RETATRUTIDE 30MG", price: 116.00, max: 20 },
+  { id: "tirzepatide60", name: "TIRZEPATIDE 60MG", price: 94.50, max: 10 },
+  { id: "tirzepatide30", name: "TIRZEPATIDE 30MG", price: 54.33, max: 30 },
+  { id: "tesamorelin10", name: "TESAMORELIN 10MG", price: 92.70, max: 10 },
+  { id: "ss31", name: "SS-31 10MG", price: 49.63, max: 10 },
+  { id: "motsc", name: "MOTS-C 10MG", price: 34.48, max: 10 },
+  { id: "amino1mq", name: "5-AMINO-1MQ 5MG", price: 24.55, max: 10 },
+  { id: "nad500", name: "NAD+ 500MG", price: 40.23, max: 20 },
+  { id: "bpc157", name: "BPC-157 + TB500 10MG", price: 51.00, max: 10 },
+  { id: "aod9604", name: "AOD9604 5MG", price: 53.00, max: 10 },
+  { id: "slupp332", name: "SLU-PP-332 5MG", price: 63.60, max: 10 },
+  { id: "cagrilintide", name: "CAGRILINTIDE 10MG", price: 104.00, max: 10 },
+  { id: "cjc1295", name: "CJC-1295 s/DAC 5MG + IPAMORELIN 5MG", price: 50.50, max: 10 },
+  { id: "glow70", name: "GLOW 70MG", price: 95.40, max: 20 },
+];
+
+function App() {
+  const [data, setData] = useState({});
+  const [view, setView] = useState("list");
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({ name: "", qty: 1 });
+  const [myName, setMyName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [search, setSearch] = useState("");
+
+  async function fetchData() {
+    try {
+      const res = await fetch("/api/data");
+      const json = await res.json();
+      setData(json);
+    } catch(e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function showToast(msg, type = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  function getTotal(id) {
+    return (data[id] || []).reduce((s, p) => s + p.qty, 0);
+  }
+
+  async function saveParticipants(peptideId, participants) {
+    setSaving(true);
+    try {
+      await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peptideId, participants })
+      });
+      await fetchData();
+    } catch(e) {
+      showToast("Erro ao salvar. Tente novamente.", "error");
+    }
+    setSaving(false);
+  }
+
+  function openModal(peptideId) {
+    setModal({ peptideId });
+    setForm({ name: myName, qty: 1 });
+  }
+
+  async function handleAdd() {
+    if (!form.name.trim()) return;
+    const { peptideId } = modal;
+    const peptide = PEPTIDES.find(p => p.id === peptideId);
+    const current = data[peptideId] || [];
+    const total = current.reduce((s, p) => s + p.qty, 0);
+
+    if (total + form.qty > peptide.max) {
+      showToast(`Só restam ${peptide.max - total} unidades!`, "error");
+      return;
+    }
+
+    const existing = current.findIndex(p => p.name.toLowerCase() === form.name.trim().toLowerCase());
+    let updated;
+    if (existing >= 0) {
+      updated = [...current];
+      updated[existing] = { ...updated[existing], qty: updated[existing].qty + form.qty };
+    } else {
+      updated = [...current, { name: form.name.trim(), qty: form.qty }];
+    }
+
+    setMyName(form.name.trim());
+    setModal(null);
+    await saveParticipants(peptideId, updated);
+    showToast(`✅ ${form.name.trim()} inscrito em ${peptide.name}!`);
+  }
+
+  async function handleRemove(peptideId, name) {
+    const current = data[peptideId] || [];
+    const updated = current.filter(p => p.name !== name);
+    await saveParticipants(peptideId, updated);
+    showToast("Removido com sucesso", "info");
+  }
+
+  function getSummary() {
+    const summary = {};
+    PEPTIDES.forEach(peptide => {
+      (data[peptide.id] || []).forEach(p => {
+        if (!summary[p.name]) summary[p.name] = [];
+        summary[p.name].push({ peptide, qty: p.qty, total: p.qty * peptide.price });
+      });
+    });
+    return summary;
+  }
+
+  const filtered = PEPTIDES.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+
+  if (loading) return (
+    <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:"100vh", color:"#a78bfa", fontSize:18 }}>
+      Carregando rateio...
+    </div>
+  );
+
+  const summary = getSummary();
+
+  return (
+    <div style={{ minHeight:"100vh", paddingBottom:40 }}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position:"fixed", top:16, left:"50%", transform:"translateX(-50%)",
+          background: toast.type==="error"?"#7f1d1d": toast.type==="info"?"#1e3a5f":"#14532d",
+          color:"#fff", padding:"10px 20px", borderRadius:12, zIndex:999, fontSize:14,
+          boxShadow:"0 4px 20px rgba(0,0,0,0.5)", maxWidth:"90vw", textAlign:"center"
+        }}>{toast.msg}</div>
+      )}
+
+      {/* Header */}
+      <div style={{ background:"linear-gradient(135deg,#1e1b4b,#312e81)", padding:"20px 16px 16px", borderBottom:"1px solid #3730a3" }}>
+        <div style={{ maxWidth:600, margin:"0 auto" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <h1 style={{ fontSize:20, fontWeight:700, color:"#c4b5fd" }}>💊 Rateio Peptídeos</h1>
+              <p style={{ marginTop:4, fontSize:12, color:"#818cf8" }}>Compra: 24/02 · Prazo: 23/02 · Base: R$5,30/$</p>
+            </div>
+            <div style={{ fontSize:11, color:"#6366f1", background:"#1e1b4b", padding:"8px 12px", borderRadius:10, border:"1px solid #3730a3", textAlign:"right" }}>
+              <div>💰 Taxa: 20%</div>
+              <div>📦 Frete separado</div>
+            </div>
+          </div>
+          <input
+            value={myName}
+            onChange={e => setMyName(e.target.value)}
+            placeholder="Seu nome (para facilitar inscrição)"
+            style={{ marginTop:12, width:"100%", padding:"10px 14px", borderRadius:10, background:"#1e1b4b", border:"1px solid #4338ca", color:"#e2e8f0", fontSize:14 }}
+          />
+        </div>
+      </div>
+
+      <div style={{ maxWidth:600, margin:"0 auto", padding:"12px 16px 0" }}>
+
+        {/* Tabs */}
+        <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+          {["list","summary"].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              flex:1, padding:"10px", borderRadius:10, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
+              background: view===v ? "#4f46e5" : "#1e1b4b",
+              color: view===v ? "#fff" : "#818cf8"
+            }}>
+              {v==="list" ? "📋 Peptídeos" : "📊 Por Pessoa"}
+            </button>
+          ))}
+        </div>
+
+        {/* Saving indicator */}
+        {saving && <div style={{ textAlign:"center", fontSize:12, color:"#6366f1", marginBottom:8 }}>Salvando...</div>}
+
+        {view === "list" && <>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 Buscar peptídeo..."
+            style={{ width:"100%", padding:"10px 14px", borderRadius:10, marginBottom:12, background:"#1e1b4b", border:"1px solid #3730a3", color:"#e2e8f0", fontSize:14 }}
+          />
+          {filtered.map(peptide => {
+            const total = getTotal(peptide.id);
+            const pct = Math.min(100, (total / peptide.max) * 100);
+            const spots = peptide.max - total;
+            const isFull = spots === 0;
+            const parts = data[peptide.id] || [];
+
+            return (
+              <div key={peptide.id} style={{
+                background:"#1a1a2e", border:`1px solid ${isFull?"#22c55e33":"#2d2d4e"}`,
+                borderRadius:14, padding:14, marginBottom:10,
+                boxShadow: isFull ? "0 0 12px #22c55e22" : "none"
+              }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:14, color:"#c4b5fd" }}>💉 {peptide.name}</div>
+                    <div style={{ fontSize:12, color:"#6366f1", marginTop:2 }}>R$ {peptide.price.toFixed(2)}/und · máx {peptide.max}</div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:13, fontWeight:700, color: isFull?"#22c55e": spots<=2?"#f59e0b":"#a78bfa" }}>
+                      {total}/{peptide.max}
+                    </div>
+                    <div style={{ fontSize:11, color:"#64748b" }}>{isFull ? "✅ cheio" : `${spots} livre${spots!==1?"s":""}`}</div>
+                  </div>
+                </div>
+
+                <div style={{ height:6, background:"#2d2d4e", borderRadius:99, margin:"10px 0 8px", overflow:"hidden" }}>
+                  <div style={{ height:"100%", borderRadius:99, width:`${pct}%`, transition:"width 0.4s", background: isFull?"#22c55e": pct>70?"#f59e0b":"#4f46e5" }} />
+                </div>
+
+                {parts.length > 0 && (
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+                    {parts.map((p,i) => (
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:4, background:"#2d2d4e", borderRadius:99, padding:"3px 10px 3px 8px", fontSize:12 }}>
+                        <span style={{ color:"#e2e8f0" }}>{p.name}</span>
+                        <span style={{ color:"#6366f1", fontWeight:700 }}>×{p.qty}</span>
+                        <button onClick={() => handleRemove(peptide.id, p.name)} style={{ background:"none", border:"none", color:"#ef4444", cursor:"pointer", fontSize:14, padding:0, lineHeight:1, marginLeft:2 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!isFull && (
+                  <button onClick={() => openModal(peptide.id)} style={{
+                    width:"100%", padding:"8px", borderRadius:8, border:"1px solid #4338ca",
+                    background:"transparent", color:"#818cf8", fontSize:13, cursor:"pointer", fontWeight:600
+                  }}>+ Quero esse</button>
+                )}
+              </div>
+            );
+          })}
+        </>}
+
+        {view === "summary" && (
+          <div>
+            {Object.keys(summary).sort().map(name => {
+              const items = summary[name];
+              const totalBRL = items.reduce((s,i) => s + i.total, 0);
+              return (
+                <div key={name} style={{ background:"#1a1a2e", border:"1px solid #2d2d4e", borderRadius:14, padding:14, marginBottom:10 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontWeight:700, fontSize:15, color:"#c4b5fd" }}>👤 {name}</div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:13, color:"#22c55e", fontWeight:700 }}>R$ {(totalBRL*1.2).toFixed(2)}</div>
+                      <div style={{ fontSize:10, color:"#64748b" }}>c/ taxa 20%</div>
+                    </div>
+                  </div>
+                  {items.map((item,i) => (
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"#94a3b8", padding:"4px 0", borderTop:"1px solid #1e1b4b" }}>
+                      <span>{item.peptide.name} ×{item.qty}</span>
+                      <span style={{ color:"#a78bfa" }}>R$ {item.total.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div style={{ marginTop:8, paddingTop:8, borderTop:"1px solid #2d2d4e", display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                    <span style={{ color:"#64748b" }}>Subtotal s/ taxa</span>
+                    <span style={{ color:"#6366f1" }}>R$ {totalBRL.toFixed(2)}</span>
+                  </div>
+                  <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>+ frete (a calcular)</div>
+                </div>
+              );
+            })}
+            {Object.keys(summary).length === 0 && (
+              <div style={{ textAlign:"center", color:"#475569", padding:40 }}>Nenhuma inscrição ainda</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      {modal && (() => {
+        const peptide = PEPTIDES.find(p => p.id === modal.peptideId);
+        const total = getTotal(modal.peptideId);
+        const maxQty = peptide.max - total;
+        return (
+          <div style={{ position:"fixed", inset:0, background:"#000000bb", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 }} onClick={() => setModal(null)}>
+            <div style={{ background:"#1a1a2e", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:600, border:"1px solid #3730a3" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight:700, fontSize:16, color:"#c4b5fd", marginBottom:4 }}>💉 {peptide.name}</div>
+              <div style={{ fontSize:13, color:"#6366f1", marginBottom:16 }}>R$ {peptide.price.toFixed(2)}/und · {maxQty} unidade{maxQty!==1?"s":""} disponível{maxQty!==1?"is":""}</div>
+
+              <label style={{ fontSize:13, color:"#94a3b8" }}>Seu nome</label>
+              <input
+                value={form.name}
+                onChange={e => setForm(f => ({...f, name: e.target.value}))}
+                placeholder="Nome completo"
+                style={{ display:"block", width:"100%", marginTop:4, marginBottom:12, padding:"10px 14px", borderRadius:10, background:"#0f0f1a", border:"1px solid #3730a3", color:"#e2e8f0", fontSize:14 }}
+              />
+
+              <label style={{ fontSize:13, color:"#94a3b8" }}>Quantidade</label>
+              <div style={{ display:"flex", gap:8, marginTop:4, marginBottom:16, flexWrap:"wrap" }}>
+                {[1,2,3,4,5].filter(n => n <= maxQty).map(n => (
+                  <button key={n} onClick={() => setForm(f => ({...f, qty:n}))} style={{
+                    flex:1, minWidth:44, padding:"10px 0", borderRadius:10, border:"1px solid",
+                    borderColor: form.qty===n?"#4f46e5":"#2d2d4e",
+                    background: form.qty===n?"#4f46e5":"transparent",
+                    color: form.qty===n?"#fff":"#94a3b8",
+                    fontSize:15, cursor:"pointer", fontWeight:700
+                  }}>{n}</button>
+                ))}
+                {maxQty > 5 && (
+                  <input type="number" min={1} max={maxQty} value={form.qty}
+                    onChange={e => setForm(f => ({...f, qty: Math.min(maxQty, Math.max(1, parseInt(e.target.value)||1))}))}
+                    style={{ flex:1, minWidth:60, padding:"10px", borderRadius:10, background:"#0f0f1a", border:`1px solid ${form.qty>5?"#4f46e5":"#2d2d4e"}`, color:"#e2e8f0", fontSize:14, textAlign:"center" }}
+                  />
+                )}
+              </div>
+
+              <div style={{ background:"#0f0f1a", borderRadius:10, padding:12, marginBottom:16, fontSize:13 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", color:"#94a3b8" }}>
+                  <span>Subtotal s/ frete e taxa:</span>
+                  <span style={{ color:"#a78bfa", fontWeight:700 }}>R$ {(peptide.price * form.qty).toFixed(2)}</span>
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between", color:"#94a3b8", marginTop:4 }}>
+                  <span>Com taxa 20%:</span>
+                  <span style={{ color:"#22c55e", fontWeight:700 }}>R$ {(peptide.price * form.qty * 1.2).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <button onClick={handleAdd} disabled={!form.name.trim()} style={{
+                width:"100%", padding:14, borderRadius:12, border:"none",
+                background: form.name.trim() ? "linear-gradient(135deg,#4f46e5,#7c3aed)" : "#2d2d4e",
+                color: form.name.trim() ? "#fff" : "#475569",
+                fontSize:15, fontWeight:700, cursor: form.name.trim() ? "pointer" : "not-allowed"
+              }}>✅ Confirmar inscrição</button>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
