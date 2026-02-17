@@ -21,6 +21,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 const MAX_PER_ROUND = 10;
+const ADMIN_PASS = "157842";
 const PEPTIDES = [
   { id: "klow80", name: "KLOW 80MG", price: 116.60 },
   { id: "selank10", name: "SELANK 10MG", price: 34.48 },
@@ -47,14 +48,14 @@ const PEPTIDES = [
 function App() {
   const [data, setData] = useState({});
   const [view, setView] = useState("list");
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(null); // { peptideId, editMode, editName, editRoundIdx, editCurrentQty, editCode }
   const [form, setForm] = useState({ name: "", qty: 1 });
-  const [myName, setMyName] = useState("");
+  const [myName, setMyName] = useState(() => localStorage.getItem("rateio-nome") || "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState("");
-  const [codeModal, setCodeModal] = useState(null); // {name, code, peptideName}
+  const [codeModal, setCodeModal] = useState(null);
 
   async function fetchData() {
     try {
@@ -64,21 +65,21 @@ function App() {
     setLoading(false);
   }
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 8000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { fetchData(); const t = setInterval(fetchData, 8000); return () => clearInterval(t); }, []);
 
   function showToast(msg, type = "success") {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }
 
+  function saveName(name) {
+    setMyName(name);
+    localStorage.setItem("rateio-nome", name);
+  }
+
   function getRounds(id) {
-    const rounds = data[id];
-    if (!rounds || rounds.length === 0) return [[]];
-    return rounds;
+    const r = data[id];
+    return (!r || r.length === 0) ? [[]] : r;
   }
 
   function getRoundTotal(round) {
@@ -94,6 +95,10 @@ function App() {
     return { roundIdx: lastIdx, round: lastRound, total, spots, isFull: spots === 0 };
   }
 
+  function generateCode() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
   async function saveRounds(peptideId, rounds) {
     setSaving(true);
     try {
@@ -107,13 +112,14 @@ function App() {
     setSaving(false);
   }
 
-  function generateCode() {
-    return String(Math.floor(100000 + Math.random() * 900000));
+  function openModal(peptideId) {
+    setModal({ peptideId, editMode: false });
+    setForm({ name: myName, qty: 1 });
   }
 
-  function openModal(peptideId) {
-    setModal({ peptideId });
-    setForm({ name: myName, qty: 1 });
+  function openEditModal(peptideId, roundIdx, participant) {
+    setModal({ peptideId, editMode: true, editName: participant.name, editRoundIdx: roundIdx, editCurrentQty: participant.qty, editCode: participant.code });
+    setForm({ name: participant.name, qty: participant.qty });
   }
 
   async function handleAdd() {
@@ -128,17 +134,13 @@ function App() {
     if (isFull) {
       newRounds = [...rounds, [{ name: form.name.trim(), qty: form.qty, code }]];
     } else {
-      if (form.qty > spots) {
-        showToast(`Só restam ${spots} vaga${spots!==1?"s":""}!`, "error");
-        return;
-      }
+      if (form.qty > spots) { showToast(`Só restam ${spots} vaga${spots!==1?"s":""}!`, "error"); return; }
       let lastRound = [...rounds[rounds.length - 1]];
       const existing = lastRound.findIndex(p => p.name.toLowerCase() === form.name.trim().toLowerCase());
       if (existing >= 0) {
-        // Already exists, just add qty, keep same code
         lastRound[existing] = { ...lastRound[existing], qty: lastRound[existing].qty + form.qty };
         newRounds = [...rounds.slice(0, -1), lastRound];
-        setMyName(form.name.trim());
+        saveName(form.name.trim());
         setModal(null);
         await saveRounds(peptideId, newRounds);
         showToast(`Inscrito em ${peptide.name}!`);
@@ -149,13 +151,56 @@ function App() {
       newRounds = [...rounds.slice(0, -1), lastRound];
     }
 
-    setMyName(form.name.trim());
+    saveName(form.name.trim());
     setModal(null);
     await saveRounds(peptideId, newRounds);
     setCodeModal({ name: form.name.trim(), code, peptideName: peptide.name });
   }
 
+  async function handleEdit() {
+    const { peptideId, editName, editRoundIdx, editCurrentQty, editCode } = modal;
+    const peptide = PEPTIDES.find(p => p.id === peptideId);
+
+    // Ask for code or admin
+    const input = window.prompt(`Código de confirmação de ${editName} ou senha admin:`);
+    if (input === null) return;
+    const isAdmin = input === ADMIN_PASS;
+    const isOwner = editCode && input === editCode;
+    if (!isAdmin && !isOwner) { showToast("Código incorreto!", "error"); return; }
+
+    const rounds = getRounds(peptideId);
+    const round = rounds[editRoundIdx];
+    const othersTotal = round.filter(p => p.name !== editName).reduce((s, p) => s + p.qty, 0);
+    const maxAllowed = MAX_PER_ROUND - othersTotal;
+
+    if (form.qty > maxAllowed) { showToast(`Máximo ${maxAllowed} und nesta rodada!`, "error"); return; }
+    if (form.qty < 1) { showToast("Mínimo 1 unidade.", "error"); return; }
+
+    const newRound = round.map(p => p.name === editName ? { ...p, qty: form.qty } : p);
+    const newRounds = rounds.map((r, i) => i === editRoundIdx ? newRound : r);
+    setModal(null);
+    await saveRounds(peptideId, newRounds);
+    showToast(`Quantidade atualizada!`);
+  }
+
+  async function handleRemove(peptideId, roundIdx, participant) {
+    const input = window.prompt(`Código de confirmação de ${participant.name}\n(Admin pode usar senha ${ADMIN_PASS})`);
+    if (input === null) return;
+    const isAdmin = input === ADMIN_PASS;
+    const isOwner = participant.code && input === participant.code;
+    if (!isAdmin && !isOwner) { showToast("Código incorreto!", "error"); return; }
+
+    const rounds = getRounds(peptideId);
+    const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== participant.name) : r);
+    const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
+    await saveRounds(peptideId, cleaned.length ? cleaned : [[]]);
+    showToast("Removido com sucesso", "info");
+  }
+
   async function handleRemoveFromClosedRound(peptideId, roundIdx, name) {
+    const senha = window.prompt(`Senha admin para remover "${name}":`);
+    if (senha === null) return;
+    if (senha !== ADMIN_PASS) { showToast("Senha incorreta!", "error"); return; }
     const rounds = getRounds(peptideId);
     const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== name) : r);
     const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
@@ -163,46 +208,43 @@ function App() {
     showToast("Removido da rodada fechada", "info");
   }
 
-  async function handleRemove(peptideId, roundIdx, name) {
-    const rounds = getRounds(peptideId);
-    const round = rounds[roundIdx];
-    const participant = round.find(p => p.name === name);
-    
-    const input = window.prompt(`Digite seu código de confirmação para remover "${name}":\n(Admin pode usar a senha 157842)`);
-    if (input === null) return;
-    
-    const isAdmin = input === "157842";
-    const isOwner = participant && participant.code && input === participant.code;
-    
-    if (!isAdmin && !isOwner) {
-      showToast("Código incorreto!", "error");
-      return;
-    }
-
-    const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== name) : r);
-    const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
-    await saveRounds(peptideId, cleaned.length ? cleaned : [[]]);
-    showToast("Removido com sucesso", "info");
+  async function handleClearPeptide(peptideId, peptideName) {
+    const senha = window.prompt(`Senha admin para limpar ${peptideName}:`);
+    if (senha === null) return;
+    if (senha !== ADMIN_PASS) { showToast("Senha incorreta!", "error"); return; }
+    await saveRounds(peptideId, [[]]);
+    showToast(`${peptideName} limpo!`, "info");
   }
 
-  async function handleClearPeptide(peptideId, peptideName) {
-    const senha = window.prompt('Digite a senha para limpar ' + peptideName + ':');
-    if (senha === null) return;
-    if (senha !== '157842') {
-      showToast('Senha incorreta!', 'error');
-      return;
-    }
-    await saveRounds(peptideId, [[]]);
-    showToast(peptideName + ' limpo!', 'info');
+  function copyToWhatsApp() {
+    let text = "💊 *RATEIO PEPTÍDEOS*\n";
+    text += "Compra: 24/02 | Prazo: 23/02 | Taxa: 20% | Frete separado\n\n";
+    PEPTIDES.forEach(peptide => {
+      const rounds = getRounds(peptide.id);
+      const hasAny = rounds.some(r => r.length > 0);
+      if (!hasAny) return;
+      rounds.forEach((round, rIdx) => {
+        if (round.length === 0) return;
+        const total = getRoundTotal(round);
+        const closed = total >= MAX_PER_ROUND;
+        text += `*${peptide.name}* ${closed ? "✅" : `(${total}/10)`}\n`;
+        text += `R$ ${peptide.price.toFixed(2)}/und`;
+        if (rounds.length > 1) text += ` | Rodada ${rIdx+1}`;
+        text += "\n";
+        round.forEach(p => { text += `${p.name} ${p.qty}\n`; });
+        text += "\n";
+      });
+    });
+    navigator.clipboard.writeText(text).then(() => showToast("Lista copiada para a área de transferência! 📋")).catch(() => showToast("Erro ao copiar.", "error"));
   }
 
   function getSummary() {
     const summary = {};
     PEPTIDES.forEach(peptide => {
-      (getRounds(peptide.id)).forEach((round, rIdx) => {
+      getRounds(peptide.id).forEach((round, rIdx) => {
         round.forEach(p => {
           if (!summary[p.name]) summary[p.name] = [];
-          summary[p.name].push({ peptide, qty: p.qty, total: p.qty * peptide.price, round: rIdx + 1, totalRounds: getRounds(peptide.id).length });
+          summary[p.name].push({ peptide, qty: p.qty, total: p.qty * peptide.price, round: rIdx+1, totalRounds: getRounds(peptide.id).length });
         });
       });
     });
@@ -210,13 +252,44 @@ function App() {
   }
 
   const filtered = PEPTIDES.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
-  if (loading) return <div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",color:"#a78bfa",fontSize:18}}>Carregando...</div>;
   const summary = getSummary();
+  const myItems = myName ? (summary[myName] || []) : [];
+
+  if (loading) return <div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",color:"#a78bfa",fontSize:18}}>Carregando...</div>;
+
+  const TABS = [
+    { id: "list", label: "📋 Peptídeos" },
+    { id: "summary", label: "📊 Por Pessoa" },
+    { id: "closed", label: "🔒 Fechados" },
+    { id: "mine", label: "👤 Meu Pedido" },
+  ];
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:40}}>
+
+      {/* Toast */}
       {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.type==="error"?"#7f1d1d":toast.type==="info"?"#1e3a5f":"#14532d",color:"#fff",padding:"10px 20px",borderRadius:12,zIndex:999,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.5)",maxWidth:"90vw",textAlign:"center"}}>{toast.msg}</div>}
 
+      {/* Code Modal */}
+      {codeModal && (
+        <div style={{position:"fixed",inset:0,background:"#000000ee",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+          <div style={{background:"#1a1a2e",borderRadius:20,padding:28,width:"100%",maxWidth:400,border:"2px solid #4f46e5",textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:8}}>🎉</div>
+            <div style={{fontWeight:700,fontSize:16,color:"#c4b5fd",marginBottom:4}}>Inscrição confirmada!</div>
+            <div style={{fontSize:13,color:"#818cf8",marginBottom:20}}>{codeModal.peptideName}</div>
+            <div style={{fontSize:13,color:"#94a3b8",marginBottom:8}}>Seu código pessoal:</div>
+            <div style={{background:"#0f0f1a",borderRadius:12,padding:"16px",marginBottom:16,border:"2px solid #4f46e5"}}>
+              <div style={{fontSize:36,fontWeight:900,color:"#a78bfa",letterSpacing:8}}>{codeModal.code}</div>
+            </div>
+            <div style={{fontSize:12,color:"#f59e0b",marginBottom:20,background:"#1c1407",padding:"10px",borderRadius:10,border:"1px solid #92400e"}}>
+              ⚠️ Anote! Sem ele só o admin pode te remover ou editar.
+            </div>
+            <button onClick={()=>setCodeModal(null)} style={{width:"100%",padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>Entendi, já anotei! ✅</button>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div style={{background:"linear-gradient(135deg,#1e1b4b,#312e81)",padding:"20px 16px 16px",borderBottom:"1px solid #3730a3"}}>
         <div style={{maxWidth:600,margin:"0 auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -228,23 +301,27 @@ function App() {
               <div>💰 Taxa: 20%</div><div>📦 Frete separado</div>
             </div>
           </div>
-          <input value={myName} onChange={e=>setMyName(e.target.value)} placeholder="Seu nome (para facilitar inscrição)"
+          <input value={myName} onChange={e=>saveName(e.target.value)} placeholder="Seu nome (salvo automaticamente)"
             style={{marginTop:12,width:"100%",padding:"10px 14px",borderRadius:10,background:"#1e1b4b",border:"1px solid #4338ca",color:"#e2e8f0",fontSize:14}} />
         </div>
       </div>
 
       <div style={{maxWidth:600,margin:"0 auto",padding:"12px 16px 0"}}>
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          {["list","summary","closed"].map(v=>(
-            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:view===v?"#4f46e5":"#1e1b4b",color:view===v?"#fff":"#818cf8"}}>{v==="list"?"📋 Peptídeos":v==="summary"?"📊 Por Pessoa":"🔒 Fechados"}</button>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setView(t.id)} style={{flex:"0 0 auto",padding:"8px 12px",borderRadius:10,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap",background:view===t.id?"#4f46e5":"#1e1b4b",color:view===t.id?"#fff":"#818cf8"}}>{t.label}</button>
           ))}
+          <button onClick={copyToWhatsApp} style={{flex:"0 0 auto",padding:"8px 12px",borderRadius:10,border:"1px solid #166534",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap",background:"transparent",color:"#4ade80"}}>📋 Copiar Lista</button>
         </div>
+
         {saving && <div style={{textAlign:"center",fontSize:12,color:"#6366f1",marginBottom:8}}>Salvando...</div>}
 
+        {/* LIST TAB */}
         {view==="list" && <>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar peptídeo..."
             style={{width:"100%",padding:"10px 14px",borderRadius:10,marginBottom:12,background:"#1e1b4b",border:"1px solid #3730a3",color:"#e2e8f0",fontSize:14}} />
-
           {filtered.map(peptide => {
             const rounds = getRounds(peptide.id);
             const { spots, isFull, total } = getActiveRound(peptide.id);
@@ -274,7 +351,7 @@ function App() {
                     <div key={rIdx} style={{marginBottom:rIdx<rounds.length-1?8:0}}>
                       {(totalRounds > 1 || roundComplete) && (
                         <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#6366f1",fontWeight:600,marginBottom:4}}>
-                          {totalRounds > 1 && "📦 Rodada "+(rIdx+1)+" — "+getRoundTotal(round)+"/10"}
+                          {totalRounds > 1 && `📦 Rodada ${rIdx+1} — ${getRoundTotal(round)}/10`}
                           {roundComplete && <span style={{background:"#14532d",color:"#22c55e",borderRadius:99,padding:"1px 7px",fontSize:10}}>🔒 fechada</span>}
                         </div>
                       )}
@@ -283,11 +360,14 @@ function App() {
                           <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:roundComplete?"#1e2d1e":"#2d2d4e",borderRadius:99,padding:"3px 10px 3px 8px",fontSize:12,border:roundComplete?"1px solid #166534":"none"}}>
                             <span style={{color:roundComplete?"#86efac":"#e2e8f0"}}>{p.name}</span>
                             <span style={{color:"#6366f1",fontWeight:700}}>×{p.qty}</span>
-                            {isActiveRound && <button onClick={()=>handleRemove(peptide.id,rIdx,p.name)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,marginLeft:2}}>×</button>}
+                            {isActiveRound && <>
+                              <button onClick={()=>openEditModal(peptide.id, rIdx, p)} style={{background:"none",border:"none",color:"#818cf8",cursor:"pointer",fontSize:11,padding:0,lineHeight:1,marginLeft:1}} title="Editar quantidade">✏️</button>
+                              <button onClick={()=>handleRemove(peptide.id,rIdx,p)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>×</button>
+                            </>}
                           </div>
                         ))}
                       </div>
-                      {roundComplete && <div style={{fontSize:10,color:"#4ade80",marginTop:4}}>🔒 Rodada completa — protegida contra alterações</div>}
+                      {roundComplete && <div style={{fontSize:10,color:"#4ade80",marginTop:4}}>🔒 Rodada completa — protegida</div>}
                     </div>
                   );
                 })}
@@ -295,13 +375,14 @@ function App() {
                   <button onClick={()=>openModal(peptide.id)} style={{flex:1,padding:"8px",borderRadius:8,border:"1px solid #4338ca",background:"transparent",color:"#818cf8",fontSize:13,cursor:"pointer",fontWeight:600}}>
                     {isFull ? `✨ Entrar na Rodada ${totalRounds+1}` : "+ Quero esse"}
                   </button>
-                  <button onClick={()=>handleClearPeptide(peptide.id, peptide.name)} title="Limpar rateio (admin)" style={{padding:"8px 12px",borderRadius:8,border:"1px solid #3f1515",background:"transparent",color:"#ef444466",fontSize:13,cursor:"pointer"}}>🗑️</button>
+                  <button onClick={()=>handleClearPeptide(peptide.id,peptide.name)} title="Limpar (admin)" style={{padding:"8px 12px",borderRadius:8,border:"1px solid #3f1515",background:"transparent",color:"#ef444455",fontSize:13,cursor:"pointer"}}>🗑️</button>
                 </div>
               </div>
             );
           })}
         </>}
 
+        {/* SUMMARY TAB */}
         {view==="summary" && (
           <div>
             {Object.keys(summary).sort().map(name => {
@@ -334,30 +415,36 @@ function App() {
           </div>
         )}
 
+        {/* CLOSED TAB */}
         {view==="closed" && (() => {
           const closedRounds = [];
           PEPTIDES.forEach(peptide => {
-            const rounds = getRounds(peptide.id);
-            rounds.forEach((round, rIdx) => {
-              const roundTotal = getRoundTotal(round);
-              if (roundTotal >= MAX_PER_ROUND) {
-                closedRounds.push({ peptide, round, roundIdx: rIdx, total: roundTotal, totalRounds: rounds.length });
-              }
+            getRounds(peptide.id).forEach((round, rIdx) => {
+              if (getRoundTotal(round) >= MAX_PER_ROUND) closedRounds.push({ peptide, round, roundIdx: rIdx, totalRounds: getRounds(peptide.id).length });
             });
           });
+          const grandTotal = closedRounds.reduce((s, item) => s + item.round.reduce((ss, p) => ss + p.qty * item.peptide.price, 0), 0);
           return (
             <div>
-              {closedRounds.length === 0 && (
-                <div style={{textAlign:"center",color:"#475569",padding:40}}>Nenhuma rodada fechada ainda</div>
+              {closedRounds.length > 0 && (
+                <div style={{background:"#14532d",borderRadius:12,padding:12,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:13,color:"#86efac",fontWeight:700}}>Total da compra (rodadas fechadas)</div>
+                    <div style={{fontSize:11,color:"#4ade80"}}>s/ frete</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:18,color:"#22c55e",fontWeight:900}}>R$ {(grandTotal*1.2).toFixed(2)}</div>
+                    <div style={{fontSize:11,color:"#4ade80"}}>c/ taxa 20%</div>
+                  </div>
+                </div>
               )}
+              {closedRounds.length === 0 && <div style={{textAlign:"center",color:"#475569",padding:40}}>Nenhuma rodada fechada ainda</div>}
               {closedRounds.map((item, i) => (
-                <div key={i} style={{background:"#1a1a2e",border:"1px solid #166534",borderRadius:14,padding:14,marginBottom:10,boxShadow:"0 0 12px #22c55e11"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div key={i} style={{background:"#1a1a2e",border:"1px solid #166534",borderRadius:14,padding:14,marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                     <div>
                       <div style={{fontWeight:700,fontSize:14,color:"#86efac"}}>✅ {item.peptide.name}</div>
-                      <div style={{fontSize:11,color:"#4ade80",marginTop:2}}>
-                        {item.totalRounds > 1 ? `Rodada ${item.roundIdx+1} de ${item.totalRounds}` : "Rodada 1"} · {item.total}/10 und
-                      </div>
+                      <div style={{fontSize:11,color:"#4ade80",marginTop:2}}>{item.totalRounds>1?`Rodada ${item.roundIdx+1} de ${item.totalRounds}`:"Rodada 1"} · 10/10 und</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>R$ {(item.round.reduce((s,p)=>s+p.qty*item.peptide.price,0)*1.2).toFixed(2)}</div>
@@ -370,12 +457,7 @@ function App() {
                       <span>👤 {p.name}</span>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
-                        <button onClick={async ()=>{
-                          const senha = window.prompt(`Senha admin para remover "${p.name}" de ${item.peptide.name}:`);
-                          if (senha === null) return;
-                          if (senha !== "157842") { showToast("Senha incorreta!", "error"); return; }
-                          await handleRemoveFromClosedRound(item.peptide.id, item.roundIdx, p.name);
-                        }} style={{background:"none",border:"none",color:"#ef444499",cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
+                        <button onClick={()=>handleRemoveFromClosedRound(item.peptide.id,item.roundIdx,p.name)} style={{background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
                       </div>
                     </div>
                   ))}
@@ -384,56 +466,102 @@ function App() {
             </div>
           );
         })()}
+
+        {/* MY ORDER TAB */}
+        {view==="mine" && (
+          <div>
+            {!myName && <div style={{textAlign:"center",color:"#475569",padding:40}}>Digite seu nome no campo acima para ver seu pedido</div>}
+            {myName && myItems.length === 0 && <div style={{textAlign:"center",color:"#475569",padding:40}}>Nenhuma inscrição encontrada para <strong style={{color:"#818cf8"}}>{myName}</strong></div>}
+            {myName && myItems.length > 0 && (() => {
+              const totalBRL = myItems.reduce((s,i)=>s+i.total,0);
+              return (
+                <div>
+                  <div style={{background:"#1e1b4b",borderRadius:12,padding:12,marginBottom:12,textAlign:"center",border:"1px solid #3730a3"}}>
+                    <div style={{fontSize:14,color:"#c4b5fd",fontWeight:700,marginBottom:4}}>👤 {myName}</div>
+                    <div style={{fontSize:22,color:"#22c55e",fontWeight:900}}>R$ {(totalBRL*1.2).toFixed(2)}</div>
+                    <div style={{fontSize:11,color:"#6366f1"}}>total c/ taxa 20% · s/ frete</div>
+                  </div>
+                  {myItems.map((item, i) => (
+                    <div key={i} style={{background:"#1a1a2e",border:"1px solid #2d2d4e",borderRadius:12,padding:12,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div>
+                        <div style={{fontSize:13,color:"#c4b5fd",fontWeight:600}}>💉 {item.peptide.name}</div>
+                        {item.totalRounds>1 && <div style={{fontSize:11,color:"#6366f1",marginTop:2}}>Rodada {item.round}</div>}
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>×{item.qty}</div>
+                        <div style={{fontSize:12,color:"#6366f1"}}>R$ {item.total.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{background:"#1a1a2e",border:"1px solid #2d2d4e",borderRadius:12,padding:12,marginTop:4}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#94a3b8",marginBottom:4}}>
+                      <span>Subtotal s/ taxa</span><span style={{color:"#6366f1"}}>R$ {totalBRL.toFixed(2)}</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#94a3b8",marginBottom:4}}>
+                      <span>Taxa 20%</span><span style={{color:"#f59e0b"}}>R$ {(totalBRL*0.2).toFixed(2)}</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,paddingTop:8,borderTop:"1px solid #2d2d4e"}}>
+                      <span style={{color:"#e2e8f0"}}>Total s/ frete</span><span style={{color:"#22c55e"}}>R$ {(totalBRL*1.2).toFixed(2)}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"#64748b",marginTop:4,textAlign:"center"}}>+ frete (a calcular no final)</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
-      {codeModal && (
-        <div style={{position:"fixed",inset:0,background:"#000000ee",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
-          <div style={{background:"#1a1a2e",borderRadius:20,padding:28,width:"100%",maxWidth:400,border:"2px solid #4f46e5",textAlign:"center"}}>
-            <div style={{fontSize:32,marginBottom:8}}>🎉</div>
-            <div style={{fontWeight:700,fontSize:16,color:"#c4b5fd",marginBottom:4}}>Inscrição confirmada!</div>
-            <div style={{fontSize:13,color:"#818cf8",marginBottom:20}}>{codeModal.peptideName}</div>
-            <div style={{fontSize:13,color:"#94a3b8",marginBottom:8}}>Seu código pessoal para remover sua inscrição:</div>
-            <div style={{background:"#0f0f1a",borderRadius:12,padding:"16px",marginBottom:20,border:"2px solid #4f46e5"}}>
-              <div style={{fontSize:36,fontWeight:900,color:"#a78bfa",letterSpacing:8}}>{codeModal.code}</div>
-            </div>
-            <div style={{fontSize:12,color:"#f59e0b",marginBottom:20,background:"#1c1407",padding:"10px",borderRadius:10,border:"1px solid #92400e"}}>
-              ⚠️ Anote esse código! Ele não será mostrado novamente. Sem ele, só o admin pode te remover.
-            </div>
-            <button onClick={()=>setCodeModal(null)} style={{width:"100%",padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
-              Entendi, já anotei! ✅
-            </button>
-          </div>
-        </div>
-      )}
-
-      {modal && (()=>{
-        const peptide = PEPTIDES.find(p=>p.id===modal.peptideId);
+      {/* ADD/EDIT MODAL */}
+      {modal && (() => {
+        const peptide = PEPTIDES.find(p => p.id === modal.peptideId);
         const { spots, isFull, roundIdx } = getActiveRound(modal.peptideId);
         const rounds = getRounds(modal.peptideId);
-        const currentRound = isFull ? rounds.length+1 : roundIdx+1;
-        const availableSpots = isFull ? MAX_PER_ROUND : spots;
+        const isEdit = modal.editMode;
+
+        let availableSpots, currentRound;
+        if (isEdit) {
+          const round = rounds[modal.editRoundIdx];
+          const othersTotal = round.filter(p => p.name !== modal.editName).reduce((s,p) => s + p.qty, 0);
+          availableSpots = MAX_PER_ROUND - othersTotal;
+          currentRound = modal.editRoundIdx + 1;
+        } else {
+          currentRound = isFull ? rounds.length+1 : roundIdx+1;
+          availableSpots = isFull ? MAX_PER_ROUND : spots;
+        }
+
         return (
           <div style={{position:"fixed",inset:0,background:"#000000bb",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:100}} onClick={()=>setModal(null)}>
             <div style={{background:"#1a1a2e",borderRadius:"20px 20px 0 0",padding:24,width:"100%",maxWidth:600,border:"1px solid #3730a3"}} onClick={e=>e.stopPropagation()}>
-              <div style={{fontWeight:700,fontSize:16,color:"#c4b5fd",marginBottom:2}}>💉 {peptide.name}</div>
-              <div style={{fontSize:12,color:isFull?"#22c55e":"#6366f1",marginBottom:16,fontWeight:isFull?600:400}}>
-                {isFull?`🎉 Rodada ${currentRound} aberta!`:`Rodada ${currentRound} · ${availableSpots} vaga${availableSpots!==1?"s":""} · R$ ${peptide.price.toFixed(2)}/und`}
+              <div style={{fontWeight:700,fontSize:16,color:"#c4b5fd",marginBottom:2}}>
+                {isEdit ? "✏️ Editar quantidade" : "💉 "+peptide.name}
               </div>
-              <label style={{fontSize:13,color:"#94a3b8"}}>Seu nome</label>
-              <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nome completo"
-                style={{display:"block",width:"100%",marginTop:4,marginBottom:12,padding:"10px 14px",borderRadius:10,background:"#0f0f1a",border:"1px solid #3730a3",color:"#e2e8f0",fontSize:14}} />
-              <label style={{fontSize:13,color:"#94a3b8"}}>Quantidade</label>
+              <div style={{fontSize:12,color:(!isEdit&&isFull)?"#22c55e":"#6366f1",marginBottom:16}}>
+                {isEdit ? `${peptide.name} · Rodada ${currentRound}` : (isFull ? `🎉 Rodada ${currentRound} aberta!` : `Rodada ${currentRound} · ${availableSpots} vaga${availableSpots!==1?"s":""} · R$ ${peptide.price.toFixed(2)}/und`)}
+              </div>
+
+              {!isEdit && <>
+                <label style={{fontSize:13,color:"#94a3b8"}}>Seu nome</label>
+                <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nome completo"
+                  style={{display:"block",width:"100%",marginTop:4,marginBottom:12,padding:"10px 14px",borderRadius:10,background:"#0f0f1a",border:"1px solid #3730a3",color:"#e2e8f0",fontSize:14}} />
+              </>}
+
+              <label style={{fontSize:13,color:"#94a3b8"}}>{isEdit ? `Quantidade (máx ${availableSpots})` : "Quantidade"}</label>
               <div style={{display:"flex",gap:8,marginTop:4,marginBottom:16}}>
                 {[1,2,3,4,5].filter(n=>n<=availableSpots).map(n=>(
                   <button key={n} onClick={()=>setForm(f=>({...f,qty:n}))} style={{flex:1,padding:"10px 0",borderRadius:10,border:"1px solid",borderColor:form.qty===n?"#4f46e5":"#2d2d4e",background:form.qty===n?"#4f46e5":"transparent",color:form.qty===n?"#fff":"#94a3b8",fontSize:15,cursor:"pointer",fontWeight:700}}>{n}</button>
                 ))}
                 {availableSpots>5 && <input type="number" min={1} max={availableSpots} value={form.qty} onChange={e=>setForm(f=>({...f,qty:Math.min(availableSpots,Math.max(1,parseInt(e.target.value)||1))}))} style={{flex:1,padding:"10px",borderRadius:10,background:"#0f0f1a",border:`1px solid ${form.qty>5?"#4f46e5":"#2d2d4e"}`,color:"#e2e8f0",fontSize:14,textAlign:"center"}} />}
               </div>
+
               <div style={{background:"#0f0f1a",borderRadius:10,padding:12,marginBottom:16,fontSize:13}}>
                 <div style={{display:"flex",justifyContent:"space-between",color:"#94a3b8"}}><span>Subtotal s/ taxa:</span><span style={{color:"#a78bfa",fontWeight:700}}>R$ {(peptide.price*form.qty).toFixed(2)}</span></div>
                 <div style={{display:"flex",justifyContent:"space-between",color:"#94a3b8",marginTop:4}}><span>Com taxa 20%:</span><span style={{color:"#22c55e",fontWeight:700}}>R$ {(peptide.price*form.qty*1.2).toFixed(2)}</span></div>
               </div>
-              <button onClick={handleAdd} disabled={!form.name.trim()} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:form.name.trim()?"linear-gradient(135deg,#4f46e5,#7c3aed)":"#2d2d4e",color:form.name.trim()?"#fff":"#475569",fontSize:15,fontWeight:700,cursor:form.name.trim()?"pointer":"not-allowed"}}>✅ Confirmar inscrição</button>
+
+              <button onClick={isEdit ? handleEdit : handleAdd} disabled={!isEdit && !form.name.trim()} style={{width:"100%",padding:14,borderRadius:12,border:"none",background:(!isEdit&&!form.name.trim())?"#2d2d4e":"linear-gradient(135deg,#4f46e5,#7c3aed)",color:(!isEdit&&!form.name.trim())?"#475569":"#fff",fontSize:15,fontWeight:700,cursor:(!isEdit&&!form.name.trim())?"not-allowed":"pointer"}}>
+                {isEdit ? "✅ Salvar alteração" : "✅ Confirmar inscrição"}
+              </button>
             </div>
           </div>
         );
