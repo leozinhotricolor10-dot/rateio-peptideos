@@ -216,20 +216,31 @@ function App() {
                 <div style={{height:6,background:"#2d2d4e",borderRadius:99,margin:"10px 0 8px",overflow:"hidden"}}>
                   <div style={{height:"100%",borderRadius:99,width:`${pct}%`,transition:"width 0.4s",background:isFull?"#22c55e":pct>70?"#f59e0b":"#4f46e5"}} />
                 </div>
-                {rounds.map((round, rIdx) => round.length === 0 ? null : (
-                  <div key={rIdx} style={{marginBottom:rIdx<rounds.length-1?8:0}}>
-                    {totalRounds > 1 && <div style={{fontSize:11,color:"#6366f1",fontWeight:600,marginBottom:4}}>📦 Rodada {rIdx+1} — {getRoundTotal(round)}/10</div>}
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {round.map((p,i)=>(
-                        <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:"#2d2d4e",borderRadius:99,padding:"3px 10px 3px 8px",fontSize:12}}>
-                          <span style={{color:"#e2e8f0"}}>{p.name}</span>
-                          <span style={{color:"#6366f1",fontWeight:700}}>×{p.qty}</span>
-                          <button onClick={()=>handleRemove(peptide.id,rIdx,p.name)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,marginLeft:2}}>×</button>
+                {rounds.map((round, rIdx) => {
+                  if (round.length === 0) return null;
+                  const roundComplete = getRoundTotal(round) >= MAX_PER_ROUND;
+                  const isActiveRound = rIdx === rounds.length - 1 && !roundComplete;
+                  return (
+                    <div key={rIdx} style={{marginBottom:rIdx<rounds.length-1?8:0}}>
+                      {(totalRounds > 1 || roundComplete) && (
+                        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#6366f1",fontWeight:600,marginBottom:4}}>
+                          {totalRounds > 1 && "📦 Rodada "+(rIdx+1)+" — "+getRoundTotal(round)+"/10"}
+                          {roundComplete && <span style={{background:"#14532d",color:"#22c55e",borderRadius:99,padding:"1px 7px",fontSize:10}}>🔒 fechada</span>}
                         </div>
-                      ))}
+                      )}
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {round.map((p,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:roundComplete?"#1e2d1e":"#2d2d4e",borderRadius:99,padding:"3px 10px 3px 8px",fontSize:12,border:roundComplete?"1px solid #166534":"none"}}>
+                            <span style={{color:roundComplete?"#86efac":"#e2e8f0"}}>{p.name}</span>
+                            <span style={{color:"#6366f1",fontWeight:700}}>×{p.qty}</span>
+                            {isActiveRound && <button onClick={()=>handleRemove(peptide.id,rIdx,p.name)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,marginLeft:2}}>×</button>}
+                          </div>
+                        ))}
+                      </div>
+                      {roundComplete && <div style={{fontSize:10,color:"#4ade80",marginTop:4}}>🔒 Rodada completa — protegida contra alterações</div>}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <button onClick={()=>openModal(peptide.id)} style={{width:"100%",marginTop:rounds[0].length>0?10:0,padding:"8px",borderRadius:8,border:"1px solid #4338ca",background:"transparent",color:"#818cf8",fontSize:13,cursor:"pointer",fontWeight:600}}>
                   {isFull ? `✨ Entrar na Rodada ${totalRounds+1}` : "+ Quero esse"}
                 </button>
