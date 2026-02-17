@@ -162,7 +162,7 @@ function App() {
     const peptide = PEPTIDES.find(p => p.id === peptideId);
 
     // Ask for code or admin
-    const input = window.prompt(`Código de confirmação de ${editName} ou senha admin:`);
+    const input = window.prompt(`Digite seu código de confirmação para editar:\nNão lembra? Fale com o Leonardo (admin)`);
     if (input === null) return;
     const isAdmin = input === ADMIN_PASS;
     const isOwner = editCode && input === editCode;
@@ -184,7 +184,7 @@ function App() {
   }
 
   async function handleRemove(peptideId, roundIdx, participant) {
-    const input = window.prompt(`Código de confirmação de ${participant.name}\n(Admin pode usar senha ${ADMIN_PASS})`);
+    const input = window.prompt(`Digite seu código de confirmação para remover "${participant.name}":\nNão lembra? Fale com o Leonardo (admin)`);
     if (input === null) return;
     const isAdmin = input === ADMIN_PASS;
     const isOwner = participant.code && input === participant.code;
@@ -198,7 +198,7 @@ function App() {
   }
 
   async function handleRemoveFromClosedRound(peptideId, roundIdx, name) {
-    const senha = window.prompt(`Senha admin para remover "${name}":`);
+    const senha = window.prompt(`Digite o código de confirmação para remover "${name}":\nNão lembra? Fale com o Leonardo (admin)`);
     if (senha === null) return;
     if (senha !== ADMIN_PASS) { showToast("Senha incorreta!", "error"); return; }
     const rounds = getRounds(peptideId);
@@ -209,7 +209,7 @@ function App() {
   }
 
   async function handleClearPeptide(peptideId, peptideName) {
-    const senha = window.prompt(`Senha admin para limpar ${peptideName}:`);
+    const senha = window.prompt(`Digite o código de confirmação para limpar ${peptideName}:\nNão lembra? Fale com o Leonardo (admin)`);
     if (senha === null) return;
     if (senha !== ADMIN_PASS) { showToast("Senha incorreta!", "error"); return; }
     await saveRounds(peptideId, [[]]);
