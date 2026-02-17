@@ -155,6 +155,14 @@ function App() {
     setCodeModal({ name: form.name.trim(), code, peptideName: peptide.name });
   }
 
+  async function handleRemoveFromClosedRound(peptideId, roundIdx, name) {
+    const rounds = getRounds(peptideId);
+    const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== name) : r);
+    const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
+    await saveRounds(peptideId, cleaned.length ? cleaned : [[]]);
+    showToast("Removido da rodada fechada", "info");
+  }
+
   async function handleRemove(peptideId, roundIdx, name) {
     const rounds = getRounds(peptideId);
     const round = rounds[roundIdx];
@@ -358,9 +366,17 @@ function App() {
                   </div>
                   <div style={{height:4,background:"#22c55e",borderRadius:99,marginBottom:10}} />
                   {item.round.map((p, pi) => (
-                    <div key={pi} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#86efac",padding:"4px 0",borderTop:"1px solid #14532d"}}>
+                    <div key={pi} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,color:"#86efac",padding:"4px 0",borderTop:"1px solid #14532d"}}>
                       <span>👤 {p.name}</span>
-                      <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
+                        <button onClick={async ()=>{
+                          const senha = window.prompt(`Senha admin para remover "${p.name}" de ${item.peptide.name}:`);
+                          if (senha === null) return;
+                          if (senha !== "157842") { showToast("Senha incorreta!", "error"); return; }
+                          await handleRemoveFromClosedRound(item.peptide.id, item.roundIdx, p.name);
+                        }} style={{background:"none",border:"none",color:"#ef444499",cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
+                      </div>
                     </div>
                   ))}
                 </div>
