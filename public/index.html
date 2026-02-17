@@ -54,6 +54,7 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState("");
+  const [codeModal, setCodeModal] = useState(null); // {name, code, peptideName}
 
   async function fetchData() {
     try {
@@ -106,6 +107,10 @@ function App() {
     setSaving(false);
   }
 
+  function generateCode() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
   function openModal(peptideId) {
     setModal({ peptideId });
     setForm({ name: myName, qty: 1 });
@@ -117,11 +122,11 @@ function App() {
     const peptide = PEPTIDES.find(p => p.id === peptideId);
     const rounds = getRounds(peptideId);
     const { isFull, spots } = getActiveRound(peptideId);
+    const code = generateCode();
 
     let newRounds;
     if (isFull) {
-      // Start new round
-      newRounds = [...rounds, [{ name: form.name.trim(), qty: form.qty }]];
+      newRounds = [...rounds, [{ name: form.name.trim(), qty: form.qty, code }]];
     } else {
       if (form.qty > spots) {
         showToast(`Só restam ${spots} vaga${spots!==1?"s":""}!`, "error");
@@ -130,9 +135,16 @@ function App() {
       let lastRound = [...rounds[rounds.length - 1]];
       const existing = lastRound.findIndex(p => p.name.toLowerCase() === form.name.trim().toLowerCase());
       if (existing >= 0) {
+        // Already exists, just add qty, keep same code
         lastRound[existing] = { ...lastRound[existing], qty: lastRound[existing].qty + form.qty };
+        newRounds = [...rounds.slice(0, -1), lastRound];
+        setMyName(form.name.trim());
+        setModal(null);
+        await saveRounds(peptideId, newRounds);
+        showToast(`Inscrito em ${peptide.name}!`);
+        return;
       } else {
-        lastRound.push({ name: form.name.trim(), qty: form.qty });
+        lastRound.push({ name: form.name.trim(), qty: form.qty, code });
       }
       newRounds = [...rounds.slice(0, -1), lastRound];
     }
@@ -140,15 +152,29 @@ function App() {
     setMyName(form.name.trim());
     setModal(null);
     await saveRounds(peptideId, newRounds);
-    showToast(`Inscrito em ${peptide.name}!`);
+    setCodeModal({ name: form.name.trim(), code, peptideName: peptide.name });
   }
 
   async function handleRemove(peptideId, roundIdx, name) {
     const rounds = getRounds(peptideId);
+    const round = rounds[roundIdx];
+    const participant = round.find(p => p.name === name);
+    
+    const input = window.prompt(`Digite seu código de confirmação para remover "${name}":\n(Admin pode usar a senha 157842)`);
+    if (input === null) return;
+    
+    const isAdmin = input === "157842";
+    const isOwner = participant && participant.code && input === participant.code;
+    
+    if (!isAdmin && !isOwner) {
+      showToast("Código incorreto!", "error");
+      return;
+    }
+
     const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== name) : r);
     const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
     await saveRounds(peptideId, cleaned.length ? cleaned : [[]]);
-    showToast("Removido", "info");
+    showToast("Removido com sucesso", "info");
   }
 
   async function handleClearPeptide(peptideId, peptideName) {
@@ -201,8 +227,8 @@ function App() {
 
       <div style={{maxWidth:600,margin:"0 auto",padding:"12px 16px 0"}}>
         <div style={{display:"flex",gap:8,marginBottom:12}}>
-          {["list","summary"].map(v=>(
-            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:view===v?"#4f46e5":"#1e1b4b",color:view===v?"#fff":"#818cf8"}}>{v==="list"?"📋 Peptídeos":"📊 Por Pessoa"}</button>
+          {["list","summary","closed"].map(v=>(
+            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:view===v?"#4f46e5":"#1e1b4b",color:view===v?"#fff":"#818cf8"}}>{v==="list"?"📋 Peptídeos":v==="summary"?"📊 Por Pessoa":"🔒 Fechados"}</button>
           ))}
         </div>
         {saving && <div style={{textAlign:"center",fontSize:12,color:"#6366f1",marginBottom:8}}>Salvando...</div>}
@@ -299,7 +325,70 @@ function App() {
             {Object.keys(summary).length===0 && <div style={{textAlign:"center",color:"#475569",padding:40}}>Nenhuma inscrição ainda</div>}
           </div>
         )}
+
+        {view==="closed" && (() => {
+          const closedRounds = [];
+          PEPTIDES.forEach(peptide => {
+            const rounds = getRounds(peptide.id);
+            rounds.forEach((round, rIdx) => {
+              const roundTotal = getRoundTotal(round);
+              if (roundTotal >= MAX_PER_ROUND) {
+                closedRounds.push({ peptide, round, roundIdx: rIdx, total: roundTotal, totalRounds: rounds.length });
+              }
+            });
+          });
+          return (
+            <div>
+              {closedRounds.length === 0 && (
+                <div style={{textAlign:"center",color:"#475569",padding:40}}>Nenhuma rodada fechada ainda</div>
+              )}
+              {closedRounds.map((item, i) => (
+                <div key={i} style={{background:"#1a1a2e",border:"1px solid #166534",borderRadius:14,padding:14,marginBottom:10,boxShadow:"0 0 12px #22c55e11"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14,color:"#86efac"}}>✅ {item.peptide.name}</div>
+                      <div style={{fontSize:11,color:"#4ade80",marginTop:2}}>
+                        {item.totalRounds > 1 ? `Rodada ${item.roundIdx+1} de ${item.totalRounds}` : "Rodada 1"} · {item.total}/10 und
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#22c55e"}}>R$ {(item.round.reduce((s,p)=>s+p.qty*item.peptide.price,0)*1.2).toFixed(2)}</div>
+                      <div style={{fontSize:10,color:"#4ade80"}}>c/ taxa 20%</div>
+                    </div>
+                  </div>
+                  <div style={{height:4,background:"#22c55e",borderRadius:99,marginBottom:10}} />
+                  {item.round.map((p, pi) => (
+                    <div key={pi} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#86efac",padding:"4px 0",borderTop:"1px solid #14532d"}}>
+                      <span>👤 {p.name}</span>
+                      <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
+
+      {codeModal && (
+        <div style={{position:"fixed",inset:0,background:"#000000ee",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+          <div style={{background:"#1a1a2e",borderRadius:20,padding:28,width:"100%",maxWidth:400,border:"2px solid #4f46e5",textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:8}}>🎉</div>
+            <div style={{fontWeight:700,fontSize:16,color:"#c4b5fd",marginBottom:4}}>Inscrição confirmada!</div>
+            <div style={{fontSize:13,color:"#818cf8",marginBottom:20}}>{codeModal.peptideName}</div>
+            <div style={{fontSize:13,color:"#94a3b8",marginBottom:8}}>Seu código pessoal para remover sua inscrição:</div>
+            <div style={{background:"#0f0f1a",borderRadius:12,padding:"16px",marginBottom:20,border:"2px solid #4f46e5"}}>
+              <div style={{fontSize:36,fontWeight:900,color:"#a78bfa",letterSpacing:8}}>{codeModal.code}</div>
+            </div>
+            <div style={{fontSize:12,color:"#f59e0b",marginBottom:20,background:"#1c1407",padding:"10px",borderRadius:10,border:"1px solid #92400e"}}>
+              ⚠️ Anote esse código! Ele não será mostrado novamente. Sem ele, só o admin pode te remover.
+            </div>
+            <button onClick={()=>setCodeModal(null)} style={{width:"100%",padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+              Entendi, já anotei! ✅
+            </button>
+          </div>
+        </div>
+      )}
 
       {modal && (()=>{
         const peptide = PEPTIDES.find(p=>p.id===modal.peptideId);
