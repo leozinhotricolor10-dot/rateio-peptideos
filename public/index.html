@@ -490,7 +490,7 @@ function App() {
                       <span>👤 {p.name}</span>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
-                        <button onClick={()=>handleClosedRoundAction(item.peptide, item.roundIdx, p)} style={{background:"none",border:"1px solid #ef444455",borderRadius:6,color:"#ef444488",cursor:"pointer",fontSize:11,padding:"2px 6px",lineHeight:1}}>×</button>
+                        <button onClick={()=>handleClosedRoundAction(item.peptide, item.roundIdx, p)} style={{background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,color:"#a78bfa",cursor:"pointer",fontSize:12,padding:"4px 10px",fontWeight:600}}>✏️ editar</button>
                       </div>
                     </div>
                   ))}
