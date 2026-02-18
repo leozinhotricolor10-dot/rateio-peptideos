@@ -397,6 +397,9 @@ function App() {
                               <button onClick={()=>openEditModal(peptide.id, rIdx, p)} style={{background:"none",border:"none",color:"#818cf8",cursor:"pointer",fontSize:11,padding:0,lineHeight:1,marginLeft:1}} title="Editar quantidade">✏️</button>
                               <button onClick={()=>handleRemove(peptide.id,rIdx,p)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>×</button>
                             </>}
+                            {roundComplete && (
+                              <button onClick={()=>handleClosedRoundAction(peptide, rIdx, p)} style={{background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,color:"#a78bfa",cursor:"pointer",fontSize:11,padding:"2px 8px",fontWeight:600,marginLeft:2}}>✏️ editar</button>
+                            )}
                           </div>
                         ))}
                       </div>
