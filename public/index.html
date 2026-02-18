@@ -197,6 +197,39 @@ function App() {
     showToast("Removido com sucesso", "info");
   }
 
+  async function handleClosedRoundAction(peptide, roundIdx, participant) {
+    const input = window.prompt(`Código de confirmação de ${participant.name}:\nNão lembra? Fale com o Leonardo (admin)`);
+    if (input === null) return;
+    const isAdmin = input === ADMIN_PASS;
+    const isOwner = participant.code && input === participant.code;
+    if (!isAdmin && !isOwner) { showToast("Código incorreto!", "error"); return; }
+
+    const action = window.confirm(`O que deseja fazer com ${participant.name}?\n\nOK = Editar quantidade\nCancelar = Remover`);
+    
+    if (action) {
+      // Edit
+      const newQtyStr = window.prompt(`Nova quantidade para ${participant.name} (atual: ${participant.qty}, máx 10):`);
+      if (newQtyStr === null) return;
+      const newQty = parseInt(newQtyStr);
+      if (isNaN(newQty) || newQty < 1 || newQty > 10) { showToast("Quantidade inválida!", "error"); return; }
+      const rounds = getRounds(peptide.id);
+      const round = rounds[roundIdx];
+      const othersTotal = round.filter(p => p.name !== participant.name).reduce((s,p) => s + p.qty, 0);
+      if (newQty + othersTotal > MAX_PER_ROUND) { showToast(`Máximo ${MAX_PER_ROUND - othersTotal} und disponível!`, "error"); return; }
+      const newRound = round.map(p => p.name === participant.name ? { ...p, qty: newQty } : p);
+      const newRounds = rounds.map((r, i) => i === roundIdx ? newRound : r);
+      await saveRounds(peptide.id, newRounds);
+      showToast("Quantidade atualizada!");
+    } else {
+      // Remove
+      const rounds = getRounds(peptide.id);
+      const newRounds = rounds.map((r, i) => i === roundIdx ? r.filter(p => p.name !== participant.name) : r);
+      const cleaned = newRounds.filter((r, i) => i === 0 || r.length > 0);
+      await saveRounds(peptide.id, cleaned.length ? cleaned : [[]]);
+      showToast("Removido da rodada fechada", "info");
+    }
+  }
+
   async function handleRemoveFromClosedRound(peptideId, roundIdx, name) {
     const senha = window.prompt(`Digite o código de confirmação para remover "${name}":\nNão lembra? Fale com o Leonardo (admin)`);
     if (senha === null) return;
@@ -457,7 +490,7 @@ function App() {
                       <span>👤 {p.name}</span>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontWeight:700}}>×{p.qty} · R$ {(p.qty*item.peptide.price).toFixed(2)}</span>
-                        <button onClick={()=>handleRemoveFromClosedRound(item.peptide.id,item.roundIdx,p.name)} style={{background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
+                        <button onClick={()=>handleClosedRoundAction(item.peptide, item.roundIdx, p)} style={{background:"none",border:"1px solid #ef444455",borderRadius:6,color:"#ef444488",cursor:"pointer",fontSize:11,padding:"2px 6px",lineHeight:1}}>×</button>
                       </div>
                     </div>
                   ))}
